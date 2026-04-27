@@ -23,7 +23,14 @@ public class AppointmentsController(IAppointmentService service) : ControllerBas
     [Route("{id:int}")]
     public async Task<IActionResult> GetAppointment(int id)
     {
-        return Ok(await service.GetAppointmentAsync(id));
+        try
+        {
+            return Ok(await service.GetAppointmentAsync(id));
+        }
+        catch (NotFoundException e)
+        {
+            return NotFound(new ErrorResponseDto { Message = e.Message });
+        }
     }
     
     // POST /api/appointments
@@ -35,13 +42,13 @@ public class AppointmentsController(IAppointmentService service) : ControllerBas
             await service.CreateAppointmentAsync(dto);
             return Created();
         }
-        catch (ConflictException ex)
+        catch (ConflictException e)
         {
-            return BadRequest(ex.Message);
+            return BadRequest(new ErrorResponseDto { Message = e.Message });
         }
         catch (NotFoundException e)
         {
-            return NotFound(e.Message);
+            return NotFound(new ErrorResponseDto { Message = e.Message });
         }
     }
 
@@ -56,7 +63,15 @@ public class AppointmentsController(IAppointmentService service) : ControllerBas
         }
         catch (NotFoundException e)
         {
-            return NotFound(e.Message);
+            return NotFound(new ErrorResponseDto { Message = e.Message });
+        }
+        catch (BadRequestException e)
+        {
+            return BadRequest(new ErrorResponseDto { Message = e.Message });
+        }
+        catch (ConflictException e)
+        {
+            return Conflict(new ErrorResponseDto { Message = e.Message });
         }
     }
 
@@ -71,11 +86,11 @@ public class AppointmentsController(IAppointmentService service) : ControllerBas
         }
         catch (ConflictException e)
         {
-            return Conflict(e.Message);
+            return Conflict(new ErrorResponseDto { Message = e.Message });
         }
         catch (NotFoundException e)
         {
-            return NotFound(e.Message);
+            return NotFound(new ErrorResponseDto { Message = e.Message });
         }
         
     }

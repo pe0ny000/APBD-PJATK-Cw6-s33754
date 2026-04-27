@@ -1,8 +1,7 @@
 using APBD_PJATK_Cw6_s33754.DTOs;
 using Microsoft.Data.SqlClient;
-using APBD_PJATK_Cw6_s33754.DTOs;
 using APBD_PJATK_Cw6_s33754.Exceptions;
-using Microsoft.AspNetCore.Mvc;
+
 
 namespace APBD_PJATK_Cw6_s33754.Services;
 
@@ -98,7 +97,7 @@ public class AppointmentService(IConfiguration configuration) : IAppointmentServ
     {
         if (dto.AppointmentDate < DateTime.Now)
         {
-            throw new Exception("Appointment date cannot be in the past");
+            throw new BadRequestException("Appointment date cannot be in the past");
         }
         var appointment = new CreateAppointmentRequestDto();
         await using var connection = new SqlConnection(configuration.GetConnectionString("Default"));
@@ -138,7 +137,7 @@ public class AppointmentService(IConfiguration configuration) : IAppointmentServ
         command.Parameters.AddWithValue("@AppointmentDate", dto.AppointmentDate);
         var conflict = await command.ExecuteScalarAsync();
         if (conflict is not null)
-            throw new Exception("Doctor already has an appointment at this time");
+            throw new ConflictException("Doctor already has an appointment at this time");
         command.Parameters.Clear();
 
         command.CommandText = """
