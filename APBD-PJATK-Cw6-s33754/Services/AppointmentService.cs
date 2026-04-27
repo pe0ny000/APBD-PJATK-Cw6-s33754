@@ -93,18 +93,178 @@ public class AppointmentService(IConfiguration configuration) : IAppointmentServ
     }
 
 
-    public Task CreateAppointmentAsync(CreateAppointmentRequestDto dto)
+    // POST /api/appointments Dodaje nową wizytę.
+    public async Task<CreateAppointmentRequestDto> CreateAppointmentAsync(CreateAppointmentRequestDto dto)
     {
-        throw new NotImplementedException();
+        if (dto.AppointmentDate < DateTime.Now)
+        {
+            throw new Exception("Appointment date cannot be in the past");
+        }
+        var appointment = new CreateAppointmentRequestDto();
+        await using var connection = new SqlConnection(configuration.GetConnectionString("Default"));
+        await using var command = new SqlCommand();
+
+        await connection.OpenAsync();
+
+        
+        command.Connection = connection;
+        //istnienie pacjenta
+        command.CommandText = """
+                              SELECT 1 from Patients where IdPatient = @idPatient and IsActive = 1
+                              """;
+        command.Parameters.AddWithValue("@IdPatient", dto.IdPatient);
+        var patientExists = await command.ExecuteScalarAsync();
+        if (patientExists is null)
+            throw new NotFoundException($"Patient with id {dto.IdPatient} not found");
+        command.Parameters.Clear();
+        
+        //istnienie lekarza
+        command.CommandText = """
+                              SELECT 1 from Doctors where IdDoctor = @idDoctor and IsActive = 1
+                              """;
+        command.Parameters.AddWithValue("@idDoctor", dto.IdDoctor);
+        var doctorExists = await command.ExecuteScalarAsync();
+        if (doctorExists is null)
+            throw new NotFoundException($"Doctor with id {dto.IdDoctor} not found");
+        command.Parameters.Clear();
+        
+        //termin
+        command.CommandText = """
+                              SELECT 1 from Appointments where IdDoctor = @IdDoctor 
+                                                           and AppointmentDate = @AppointmentDate 
+                                                           and Status = 'Scheduled'
+                              """;
+        command.Parameters.AddWithValue("@IdDoctor", dto.IdDoctor);
+        command.Parameters.AddWithValue("@AppointmentDate", dto.AppointmentDate);
+        var conflict = await command.ExecuteScalarAsync();
+        if (conflict is not null)
+            throw new Exception("Doctor already has an appointment at this time");
+        command.Parameters.Clear();
+
+        command.CommandText = """
+                              INSERT INTO Appointments (IdPatient, IdDoctor, AppointmentDate, Status, Reason, CreatedAt)
+                              VALUES (@IdPatient, @IdDoctor, @AppointmentDate, 'Scheduled', @Reason, GETDATE())
+                              """;
+        command.Parameters.AddWithValue("@IdDoctor", dto.IdDoctor);
+        command.Parameters.AddWithValue("@AppointmentDate", dto.AppointmentDate);
+        command.Parameters.AddWithValue("@Reason", dto.Reason);
+        command.Parameters.AddWithValue("@IdPatient", dto.IdPatient);
+        await command.ExecuteNonQueryAsync();
+        return appointment;
     }
 
-    public Task UpdateAppointmentAsync(int id, UpdateAppointmentRequestDto dto)
+    
+   // PUT /api/appointments/{idAppointment}
+    public async Task UpdateAppointmentAsync(int id, UpdateAppointmentRequestDto dto)
     {
-        throw new NotImplementedException();
+        
+        await using var connection = new SqlConnection(configuration.GetConnectionString("Default"));
+        await using var command = new SqlCommand();
+
+        await connection.OpenAsync();
+        
+        command.Connection = connection;
+        
+        //sprawdzenie rezerwacji
+        command.CommandText = """
+                              SELECT 1 from Appointments where IdAppointment = @idAppointment
+                              """;
+        command.Parameters.AddWithValue("@idAppointment", id);
+        var appointmentExists = await command.ExecuteScalarAsync();
+        if (appointmentExists is null)
+            throw new NotFoundException($"Appointment with id {id} not found");
+        command.Parameters.Clear();
+
+        //sprawdzenie lekarza
+        command.CommandText = """Select 1 from Doctors where IdDoctor = @IdDoctor and IsActive = 1""";
+        command.Parameters.AddWithValue("@IdDoctor", dto.IdDoctor);
+        var doctorExists = await command.ExecuteScalarAsync();
+        if (doctorExists is null)
+            throw new NotFoundException($"Doctor with id {dto.IdDoctor} not found");
+        command.Parameters.Clear();
+        
+        //sprawdzenie pacjenta
+        command.CommandText = """ Select 1 from Patients where IdPatient = @IdPatient and IsActive = 1""";
+        command.Parameters.AddWithValue("@IdPatient", dto.IdPatient);
+        var patientExists = await command.ExecuteScalarAsync();
+        if (patientExists is null)
+            throw new NotFoundException($"Patient with id {dto.IdPatient} not found");
+        command.Parameters.Clear();
+        
+        //Sprawdzenie statusu
+        command.CommandText = "SELECT Status, AppointmentDate FROM dbo.Appointments WHERE IdAppointment = @idAppointment";
+        command.Parameters.AddWithValue("@idAppointment", id);
+        await using var reader = await command.ExecuteReaderAsync();
+        await reader.ReadAsync();
+        var currentStatus = reader.GetString(0);
+        var currentDate = reader.GetDateTime(1);
+        await reader.CloseAsync();
+        command.Parameters.Clear();
+
+        if (currentStatus == "Completed" && dto.AppointmentDate != currentDate)
+            throw new BadHttpRequestException("Cannot change date of a completed appointment");
+        
+        var validStatus = new[]{"Scheduled", "Completed", "Cancelled"};
+        if (!validStatus.Contains(dto.Status))
+            throw new BadHttpRequestException("Invalid status");
+        
+        //czy lekarz jest zajety
+        command.CommandText = """
+                              SELECT 1 from Appointments where IdDoctor = @IdDoctor 
+                                                           and AppointmentDate = @AppointmentDate 
+                                                           and Status = 'Scheduled'
+                              """;
+        command.Parameters.AddWithValue("@IdDoctor", dto.IdDoctor);
+        command.Parameters.AddWithValue("@AppointmentDate", dto.AppointmentDate);
+        var conflict = await command.ExecuteScalarAsync();
+        if (conflict is not null)
+            throw new ConflictException($"Doctor already has an appointment at this time");
+        command.Parameters.Clear();
+        
+        command.CommandText = """
+                              UPDATE Appointments SET IdPatient = @idPatient, IdDoctor = @idDoctor, AppointmentDate = @AppointmentDate, Status = @Status, Reason = @Reason, InternalNotes = @InternalNotes WHERE IdAppointment = @idAppointment
+                              """;
+        command.Parameters.AddWithValue("@idDoctor", dto.IdDoctor);
+        command.Parameters.AddWithValue("@AppointmentDate", dto.AppointmentDate);
+        command.Parameters.AddWithValue("@Status", dto.Status);
+        command.Parameters.AddWithValue("@Reason", dto.Reason);
+        command.Parameters.AddWithValue("@IdPatient", dto.IdPatient);
+        command.Parameters.AddWithValue("@InternalNotes", (object?)dto.InternalNotes ?? DBNull.Value);
+        command.Parameters.AddWithValue("@idAppointment", id);
+        await command.ExecuteNonQueryAsync();
+        
     }
 
-    public Task DeleteAppointmentAsync(int id)
+    public async Task DeleteAppointmentAsync(int id)
     {
-        throw new NotImplementedException();
+        await using var connection = new SqlConnection(configuration.GetConnectionString("Default"));
+        await using var command = new SqlCommand();
+
+        await connection.OpenAsync();
+        
+        command.Connection = connection;
+        command.CommandText = """select 1 from appointments where IdAppointment = @idAppointment""";
+        command.Parameters.AddWithValue("@idAppointment", id);
+        var appointmentExists = await command.ExecuteScalarAsync();
+        if (appointmentExists is null)
+            throw new NotFoundException($"Appointment with id {id} not found");
+        
+        command.CommandText = """SELECT Status FROM dbo.Appointments WHERE IdAppointment = @idAppointment""";
+        await using var reader = await command.ExecuteReaderAsync();
+        await reader.ReadAsync();
+        var currentStatus = reader.GetString(0);
+        await reader.CloseAsync();
+        command.Parameters.Clear();
+
+        if (currentStatus == "Completed" )
+            throw new ConflictException("Cannot delate completed appointment");
+
+        command.CommandText = """
+                              Delete From dbo.Appointments Where IdAppointment = @idAppointment
+                              """;
+        command.Parameters.AddWithValue("@idAppointment", id);
+        await command.ExecuteNonQueryAsync();
+        
+
     }
 }

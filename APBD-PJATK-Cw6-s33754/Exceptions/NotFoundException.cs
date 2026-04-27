@@ -2,8 +2,7 @@ namespace APBD_PJATK_Cw6_s33754.Exceptions;
 
 public class NotFoundException : Exception
 {
-    public NotFoundException(string s)
+    public NotFoundException(string message) : base(message)
     {
-        throw new NotImplementedException();
     }
 }
