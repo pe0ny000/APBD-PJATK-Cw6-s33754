@@ -1,15 +1,26 @@
+using APBD_PJATK_Cw6_s33754.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace APBD_PJATK_Cw6_s33754.Controllers;
 
 [ApiController]
 [Route("api/appointments")]
-public class AppointmentsController : ControllerBase
+public class AppointmentsController(IAppointmentService service) : ControllerBase
 {
-    private readonly string _connectionString;
-
-    public AppointmentsController(IConfiguration configuration)
+    //GET /api/appointments?status=Scheduled&patientLastName=Kowalska
+    [HttpGet]
+    public async Task<IActionResult> GetAppointments([FromQuery] string? status,[FromQuery] string? patientLastName)
     {
-        _connectionString = configuration.GetConnectionString("DefaultConnection")!;
+        return Ok(await service.GetAppointmentsAsync(status, patientLastName));
+    }
+    
+    
+    //GET /api/appointments/{idAppointment} Zwraca szczegóły jednej wizyty.
+
+    [HttpGet]
+    [Route("{id:int}")]
+    public async Task<IActionResult> GetAppointment(int id)
+    {
+        return Ok(await service.GetAppointmentAsync(id));
     }
 }
